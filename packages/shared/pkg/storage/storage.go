@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"maps"
 	"os"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -59,6 +61,14 @@ const (
 	// returns the uncompressed size for compressed objects.
 	MetadataKeyUncompressedSize = "uncompressed-size"
 )
+
+func compressedUploadMetadata(metadata ObjectMetadata, size int64) ObjectMetadata {
+	out := make(map[string]string, len(metadata)+1)
+	maps.Copy(out, metadata)
+	out[MetadataKeyUncompressedSize] = strconv.FormatInt(size, 10)
+
+	return out
+}
 
 // GetProviderType returns the configured storage provider type from the
 // STORAGE_PROVIDER environment variable, defaulting to GCPBucket.

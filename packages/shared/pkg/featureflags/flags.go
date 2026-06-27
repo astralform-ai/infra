@@ -269,7 +269,8 @@ func NewIntFlag(name string, fallback int) IntFlag {
 }
 
 var (
-	MaxSandboxesPerNode           = NewIntFlag("max-sandboxes-per-node", 200)
+	MaxSandboxesPerNode = NewIntFlag("max-sandboxes-per-node", 200)
+	// The LD keys keep the legacy "gcloud-" prefix, but the limits apply to uploads on all storage providers.
 	StorageConcurrentUploadLimit  = NewIntFlag("gcloud-concurrent-upload-limit", 8)
 	StorageMaxUploadTasks         = NewIntFlag("gcloud-max-tasks", 16)
 	ClickhouseBatcherMaxBatchSize = NewIntFlag("clickhouse-batcher-max-batch-size", 100)

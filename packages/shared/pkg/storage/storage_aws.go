@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,11 +25,10 @@ import (
 )
 
 const (
-	awsOperationTimeout           = 5 * time.Second
-	awsWriteTimeout               = 30 * time.Second
-	awsReadTimeout                = 15 * time.Second
-	awsMultipartUploadPartSize    = 10 * 1024 * 1024
-	awsMultipartUploadConcurrency = 8
+	awsOperationTimeout        = 5 * time.Second
+	awsWriteTimeout            = 30 * time.Second
+	awsReadTimeout             = 15 * time.Second
+	awsMultipartUploadPartSize = 10 * 1024 * 1024
 )
 
 type awsStorage struct {
@@ -192,26 +192,18 @@ func (o *awsObject) StoreFile(ctx context.Context, path string, opts ...PutOptio
 	p := ApplyPutOptions(opts)
 	cfg := CompressConfigFromOpts(p)
 	if cfg.IsCompressionEnabled() {
-		ft, checksum, err := o.storeFileCompressed(ctx, path, cfg, p)
-		if err == nil {
-			t := ft.Table()
-			logger.L().Debug(ctx, "Uploaded file to S3",
-				zap.String("bucket", o.bucketName),
-				zap.String("object", o.path),
-				zap.String("source", path),
-				zap.Int64("size_uncompressed", t.UncompressedSize()),
-				zap.Int64("size_compressed", t.CompressedSize()),
-				zap.String("compression", cfg.CompressionType().String()),
-				zap.Int("frames", t.NumFrames()),
-			)
-		}
-
-		return ft, checksum, err
+		return o.storeFileCompressed(ctx, path, cfg, p)
 	}
+
+	release, err := o.limiter.AcquireUploadSlot(ctx)
+	if err != nil {
+		return nil, [32]byte{}, err
+	}
+	defer release()
 
 	// Inherit the caller's context for the multipart upload. The AWS SDK's
 	// manager.Uploader reuses the same ctx for CreateMultipartUpload, every
-	// UploadPart (Concurrency=8, PartSize=10MB), and the final Complete/Abort —
+	// UploadPart, and the final Complete/Abort —
 	// a tight static timeout here would cancel an in-flight multi-GB snapshot
 	// upload and surface as "S3: UploadPart ... StatusCode: 0, canceled,
 	// context deadline exceeded". The caller (pkg/server/sandboxes.go) already
@@ -227,7 +219,7 @@ func (o *awsObject) StoreFile(ctx context.Context, path string, opts ...PutOptio
 		o.client,
 		func(u *manager.Uploader) {
 			u.PartSize = awsMultipartUploadPartSize
-			u.Concurrency = awsMultipartUploadConcurrency
+			u.Concurrency = o.limiter.MaxUploadTasks(ctx)
 		},
 	)
 
@@ -266,27 +258,25 @@ func (o *awsObject) storeFileCompressed(ctx context.Context, localPath string, c
 	}
 	defer file.Close()
 
+	fi, err := file.Stat()
+	if err != nil {
+		return nil, [32]byte{}, fmt.Errorf("failed to stat local file %s: %w", localPath, err)
+	}
+
+	release, err := o.limiter.AcquireUploadSlot(ctx)
+	if err != nil {
+		return nil, [32]byte{}, err
+	}
+	defer release()
+
 	uploader := &awsPartUploader{
 		client:     o.client,
 		bucketName: o.bucketName,
 		objectName: o.path,
-		metadata:   putOpts.Metadata,
-	}
-	maxConcurrency := limit.StorageMaxUploadTasksDefault()
-	if o.limiter != nil {
-		uploadLimiter := o.limiter.StorageUploadLimiter()
-		if uploadLimiter != nil {
-			semaphoreErr := uploadLimiter.Acquire(ctx, 1)
-			if semaphoreErr != nil {
-				return nil, [32]byte{}, fmt.Errorf("failed to acquire semaphore: %w", semaphoreErr)
-			}
-			defer uploadLimiter.Release(1)
-		}
-
-		maxConcurrency = o.limiter.StorageMaxUploadTasks(ctx)
+		metadata:   compressedUploadMetadata(putOpts.Metadata, fi.Size()),
 	}
 
-	return compressStream(ctx, file, cfg, uploader, maxConcurrency, putOpts.FrameSink)
+	return compressStream(ctx, file, cfg, uploader, o.limiter.MaxUploadTasks(ctx), putOpts.FrameSink)
 }
 
 func (o *awsObject) Put(ctx context.Context, data []byte, opts ...PutOption) error {
@@ -357,6 +347,13 @@ func (o *awsObject) Size(ctx context.Context) (_ int64, err error) {
 		return 0, err
 	}
 
+	if v, ok := resp.Metadata[MetadataKeyUncompressedSize]; ok {
+		parsed, parseErr := strconv.ParseInt(v, 10, 64)
+		if parseErr == nil {
+			return parsed, nil
+		}
+	}
+
 	return *resp.ContentLength, nil
 }
 
@@ -394,9 +391,11 @@ type awsPartUploader struct {
 	objectName string
 	metadata   ObjectMetadata
 
-	mu        sync.Mutex
-	uploadID  string
-	parts     []types.CompletedPart
+	mu       sync.Mutex
+	uploadID string
+	parts    []types.CompletedPart
+	// completed needs no lock: compressStream calls Complete and the deferred
+	// Close sequentially from one goroutine, after all UploadPart calls finish.
 	completed bool
 }
 
@@ -418,17 +417,12 @@ func (m *awsPartUploader) Start(ctx context.Context) error {
 }
 
 func (m *awsPartUploader) UploadPart(ctx context.Context, partIndex int, data ...[]byte) error {
-	var buf bytes.Buffer
-	for _, d := range data {
-		buf.Write(d)
-	}
-
 	out, err := m.client.UploadPart(ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(m.bucketName),
 		Key:        aws.String(m.objectName),
 		UploadId:   aws.String(m.uploadID),
 		PartNumber: aws.Int32(int32(partIndex)),
-		Body:       bytes.NewReader(buf.Bytes()),
+		Body:       bytes.NewReader(bytes.Join(data, nil)),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload part %d: %w", partIndex, err)

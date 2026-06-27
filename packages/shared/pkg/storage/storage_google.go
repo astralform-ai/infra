@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"maps"
 	"net/http"
 	"os"
 	"strconv"
@@ -34,16 +33,15 @@ import (
 )
 
 const (
-	googleReadTimeout              = 10 * time.Second
-	googleOperationTimeout         = 5 * time.Second
-	googleBufferSize               = 4 << 20 // 4 MiB
-	googleInitialBackoff           = 10 * time.Millisecond
-	googleMaxBackoff               = 10 * time.Second
-	googleBackoffMultiplier        = 2
-	googleMaxAttempts              = 10
-	defaultGRPCConnectionPoolSize  = 8
-	defaultGCSEnableDirectPath     = false
-	gcloudDefaultUploadConcurrency = 16
+	googleReadTimeout             = 10 * time.Second
+	googleOperationTimeout        = 5 * time.Second
+	googleBufferSize              = 4 << 20 // 4 MiB
+	googleInitialBackoff          = 10 * time.Millisecond
+	googleMaxBackoff              = 10 * time.Second
+	googleBackoffMultiplier       = 2
+	googleMaxAttempts             = 10
+	defaultGRPCConnectionPoolSize = 8
+	defaultGCSEnableDirectPath    = false
 
 	gcsOperationAttr                    = "operation"
 	gcsOperationAttrWrite               = "Write"
@@ -418,21 +416,15 @@ func (o *gcpObject) StoreFile(ctx context.Context, path string, opts ...PutOptio
 		attribute.String("compression.type", compressionMetricType),
 	)
 
-	maxConcurrency := gcloudDefaultUploadConcurrency
-	if o.limiter != nil {
-		uploadLimiter := o.limiter.StorageUploadLimiter()
-		if uploadLimiter != nil {
-			semaphoreErr := uploadLimiter.Acquire(ctx, 1)
-			if semaphoreErr != nil {
-				timer.Failure(ctx, 0)
+	release, err := o.limiter.AcquireUploadSlot(ctx)
+	if err != nil {
+		timer.Failure(ctx, 0)
 
-				return nil, [32]byte{}, fmt.Errorf("failed to acquire semaphore: %w", semaphoreErr)
-			}
-			defer uploadLimiter.Release(1)
-		}
-
-		maxConcurrency = o.limiter.StorageMaxUploadTasks(ctx)
+		return nil, [32]byte{}, err
 	}
+	defer release()
+
+	maxConcurrency := o.limiter.MaxUploadTasks(ctx)
 
 	// Compressed uploads always go through the multipart compressed path,
 	// regardless of file size.
@@ -548,11 +540,7 @@ func (o *gcpObject) storeFileCompressed(ctx context.Context, localPath string, c
 		return nil, [32]byte{}, fmt.Errorf("failed to stat local file %s: %w", localPath, err)
 	}
 
-	// Merge caller metadata (e.g. team_id) with our internal uncompressed-size
-	// bookkeeping. Internal key wins on collision.
-	metadata := make(map[string]string, len(putOpts.Metadata)+1)
-	maps.Copy(metadata, putOpts.Metadata)
-	metadata[MetadataKeyUncompressedSize] = strconv.FormatInt(fi.Size(), 10)
+	metadata := compressedUploadMetadata(putOpts.Metadata, fi.Size())
 
 	uploader, err := NewMultipartUploaderWithRetryConfig(
 		ctx,
