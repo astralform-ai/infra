@@ -40,6 +40,10 @@ type Proxy struct {
 
 	proxyRules []proxyRule
 	proxy      *tcpproxy.Proxy
+
+	// Egress transform CA: mints leaf certs to MITM transform hosts for header injection.
+	// nil if CA init failed (header injection disabled; all hosts tunnel as before).
+	mitmCA *mitmCA
 }
 
 func New(logger logger.Logger, networkConfig network.Config, sandboxes *sandbox.Map, meterProvider metric.MeterProvider, featureFlags *featureflags.Client) *Proxy {
@@ -60,6 +64,12 @@ func New(logger logger.Logger, networkConfig network.Config, sandboxes *sandbox.
 		{dstPort: "80", proxyPort: fmt.Sprintf("%d", p.httpPort), desc: "HTTP"},
 		{dstPort: "443", proxyPort: fmt.Sprintf("%d", p.tlsPort), desc: "TLS"},
 		{dstPort: "", proxyPort: fmt.Sprintf("%d", p.otherPort), desc: "other TCP"},
+	}
+
+	if ca, err := newMITMCA(); err != nil {
+		logger.Error(context.Background(), "egress transform: CA init failed; header injection disabled", zap.Error(err))
+	} else {
+		p.mitmCA = ca
 	}
 
 	sandboxes.Subscribe(p)
@@ -100,11 +110,11 @@ func (p *Proxy) Start(ctx context.Context) error {
 	otherAddr := fmt.Sprintf("0.0.0.0:%d", p.otherPort)
 
 	// HTTP listener (port 80 traffic): inspect Host header for domain allowlist
-	p.proxy.AddHTTPHostMatchRoute(httpAddr, func(_ context.Context, _ string) bool { return true }, newConnectionHandler(ctx, domainHandler, ProtocolHTTP, p.metrics, p.limiter, p.logger, p.sandboxes, p.featureFlags))
+	p.proxy.AddHTTPHostMatchRoute(httpAddr, func(_ context.Context, _ string) bool { return true }, newConnectionHandler(ctx, p.domainHandler, ProtocolHTTP, p.metrics, p.limiter, p.logger, p.sandboxes, p.featureFlags))
 	p.proxy.AddRoute(httpAddr, newConnectionHandler(ctx, cidrOnlyHandler, ProtocolHTTP, p.metrics, p.limiter, p.logger, p.sandboxes, p.featureFlags))
 
 	// TLS listener (port 443 traffic): inspect SNI for domain allowlist
-	p.proxy.AddSNIMatchRoute(tlsAddr, func(_ context.Context, _ string) bool { return true }, newConnectionHandler(ctx, domainHandler, ProtocolTLS, p.metrics, p.limiter, p.logger, p.sandboxes, p.featureFlags))
+	p.proxy.AddSNIMatchRoute(tlsAddr, func(_ context.Context, _ string) bool { return true }, newConnectionHandler(ctx, p.domainHandler, ProtocolTLS, p.metrics, p.limiter, p.logger, p.sandboxes, p.featureFlags))
 	p.proxy.AddRoute(tlsAddr, newConnectionHandler(ctx, cidrOnlyHandler, ProtocolTLS, p.metrics, p.limiter, p.logger, p.sandboxes, p.featureFlags))
 
 	// Other listener (all other ports): CIDR-only check, no protocol inspection
@@ -180,7 +190,11 @@ func (p *Proxy) Close(_ context.Context) error {
 }
 
 func (p *Proxy) CABundle() string {
-	return ""
+	if p.mitmCA == nil {
+		return ""
+	}
+
+	return p.mitmCA.pem
 }
 
 func (p *Proxy) SupportsBYOP() bool {
