@@ -27,7 +27,7 @@ const (
 )
 
 // domainHandler handles connections with hostname information (HTTP Host header or TLS SNI).
-func domainHandler(ctx context.Context, conn net.Conn, dstIP net.IP, dstPort int, sbx *sandbox.Sandbox, logger logger.Logger, metrics *Metrics, protocol Protocol) {
+func (p *Proxy) domainHandler(ctx context.Context, conn net.Conn, dstIP net.IP, dstPort int, sbx *sandbox.Sandbox, logger logger.Logger, metrics *Metrics, protocol Protocol) {
 	// Get hostname from tcpproxy's wrapped connection (HTTP Host or TLS SNI).
 	// Hostname can be empty, e.g. for https://1.1.1.1 like requests.
 	var hostname string
@@ -59,6 +59,16 @@ func domainHandler(ctx context.Context, conn net.Conn, dstIP net.IP, dstPort int
 	// Happy Eyeballs (RFC 8305) for multi-IP fallback when some IPs are unreachable.
 	// After connecting, we verify the connected IP is not internal/private.
 	if matchType == MatchTypeDomain {
+		// Header injection: if this host carries a transform rule, MITM the TLS and inject
+		// the configured headers instead of tunneling. Scoped to TLS + transform hosts.
+		if protocol == ProtocolTLS && p.mitmCA != nil {
+			if headers := transformHeadersForHost(sbx, hostname); len(headers) > 0 {
+				p.mitmInject(ctx, conn, hostname, dstPort, headers, logger, metrics)
+
+				return
+			}
+		}
+
 		upstreamAddr := net.JoinHostPort(hostname, fmt.Sprintf("%d", dstPort))
 		proxyWithIPVerification(ctx, conn, upstreamAddr, logger, metrics, protocol)
 
