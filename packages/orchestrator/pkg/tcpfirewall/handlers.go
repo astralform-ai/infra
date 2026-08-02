@@ -88,13 +88,35 @@ func (p *Proxy) domainHandler(ctx context.Context, conn net.Conn, dstIP net.IP, 
 	// Happy Eyeballs (RFC 8305) for multi-IP fallback when some IPs are unreachable.
 	// After connecting, we verify the connected IP is not internal/private.
 	if matchType == MatchTypeDomain {
-		// Header injection: if this host carries a transform rule, MITM the TLS and inject
-		// the configured headers instead of tunneling. Scoped to TLS + transform hosts.
-		if protocol == ProtocolTLS && p.mitmCA != nil {
-			if headers := transformHeadersForHost(sbx, hostname); len(headers) > 0 {
+		if headers := transformHeadersForHost(sbx, hostname); len(headers) > 0 {
+			// Header injection: this host carries a transform rule.
+			switch {
+			case protocol == ProtocolTLS && p.mitmCA != nil:
+				// MITM the TLS and inject instead of tunneling.
 				p.mitmInject(ctx, conn, hostname, dstPort, headers, logger, metrics)
 
 				return
+
+			case protocol == ProtocolHTTP:
+				// Refuse the plaintext path for a transform host. Injection only happens on
+				// TLS, so tunneling :80 here would send the request WITHOUT the credential —
+				// and once the caller substitutes a placeholder for the real value, that
+				// placeholder goes out in the clear and auth fails in a way that looks like
+				// a server problem. Injecting over :80 is not the alternative: that would put
+				// the credential itself on the wire unencrypted. Fail loudly instead.
+				logger.Warn(ctx, "egress transform: refusing plaintext :80 for a transform host",
+					zap.String("host", hostname))
+				metrics.RecordDecision(ctx, DecisionBlocked, protocol, matchType)
+				conn.Close()
+
+				return
+
+			default:
+				// TLS host with no usable CA (init failed). Tunnel uninjected rather than
+				// break egress outright — CABundle() is empty in this state too, so the
+				// caller's capability probe reports no injection and keeps baking values.
+				logger.Warn(ctx, "egress transform: no CA, tunneling without injection",
+					zap.String("host", hostname))
 			}
 		}
 

@@ -11,7 +11,26 @@ package tcpfirewall
 // Mechanism: for a matched transform host we MITM the sandbox's TLS with a leaf cert minted
 // by an egress CA the sandbox trusts (served via CABundle()), read each HTTP/1.1 request,
 // set the configured headers, and forward over a fresh TLS connection to the real origin
-// (with the same internal-IP guard as the tunnel path). The sandbox never holds the value.
+// (with the same internal-IP guard as the tunnel path).
+//
+// WHAT THIS DOES AND DOES NOT PROTECT — read before relying on it.
+//
+// It keeps the credential out of the sandbox's own state: not in the environment, not on
+// disk, not in the process table. Code in the sandbox holds only a placeholder and cannot
+// read the real value out of itself.
+//
+// It does NOT stop an ORIGIN from handing the value back. We strip the injected header
+// names from the response headers below, but any origin that reflects request headers into
+// its response BODY — postman-echo, httpbin/headers, most debug endpoints, or a hostile
+// server that base64s it — returns the credential to the sandbox, and no proxy can prevent
+// that in general. Verified live on 2026-08-02: a probe against postman-echo.com read its
+// own injected header straight out of the JSON body.
+//
+// So injection converts "the secret sits in os.environ forever" into "the secret is
+// reachable only by talking to an allowlisted host that chooses to echo it". That is a real
+// reduction and it is NOT containment. Scope allowed hosts to origins you trust not to
+// reflect, and keep the egress allowlist tight — that, not this file, bounds the blast
+// radius. Cloudflare's and Vercel's equivalents share this property.
 
 import (
 	"bufio"
@@ -202,11 +221,24 @@ func (p *Proxy) mitmInject(ctx context.Context, conn net.Conn, host string, port
 
 		resp, err := transport.RoundTrip(req.WithContext(ctx))
 		if err != nil {
+			// Never include the error's request context here — a transport error can carry
+			// the URL and headers, and these headers hold the injected credential.
 			logger.Warn(ctx, "egress transform: upstream request failed", zap.String("host", host), zap.Error(err))
 			metrics.RecordError(ctx, ErrorTypeUpstreamDial, ProtocolTLS)
 			_ = writeGatewayError(serverConn)
 
 			return
+		}
+
+		// Strip the injected header names from the RESPONSE headers before the sandbox sees
+		// them. Some origins echo request headers straight back (CORS preflight mirrors,
+		// debug endpoints), which would hand the credential to sandbox code for free.
+		//
+		// This closes the header path only. An origin that reflects into the response BODY
+		// still returns the value and cannot be stopped from here — see the note at the top
+		// of this file. Do not read this as containment.
+		for k := range headers {
+			resp.Header.Del(k)
 		}
 
 		writeErr := resp.Write(serverConn)
