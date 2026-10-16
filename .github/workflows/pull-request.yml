@@ -134,10 +134,11 @@ jobs:
     uses: ./.github/workflows/pr-no-generated-changes.yml
     with:
       # Fork-local gate: on same-repo PRs the reusable workflow mints a GitHub App token
-      # to auto-commit regenerated files, and this org carries no `AUTOFIXER_APP_ID` — so
-      # those PRs died in the token step with `[@octokit/auth-app] appId option is
-      # required`, a secret nobody has. Fork PRs already pass `commit: false` and run the
-      # verify-only pipeline, which needs no credential, so they keep the check.
+      # to auto-commit regenerated files, and this org carries neither the
+      # `AUTOFIXER_APP_ID` variable nor the `AUTOFIXER_APP_SECRET` secret — so those PRs
+      # died in the token step with `[@octokit/auth-app] appId option is required`. Set
+      # both and the check runs here again. Fork PRs already pass `commit: false` and run
+      # the verify-only pipeline, which needs no credential, so they keep the check.
       run-check: ${{ contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') && needs.detect-changes.outputs.docs-only != 'true' && (vars.AUTOFIXER_APP_ID != '' || github.event.pull_request.head.repo.full_name != github.repository) }}
       # Only auto-commit for same-repo PRs (secrets aren't available for forks)
       commit: ${{ github.event.pull_request.head.repo.full_name == github.repository }}

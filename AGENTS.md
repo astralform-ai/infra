@@ -39,10 +39,11 @@ use a GitHub-hosted runner (`ubuntu-latest` / `ubuntu-24.04`).
   creation (`GitHub Actions is not permitted to create or approve pull requests`, with
   no `vars.RELEASE_PLEASE_APP_ID`).
 - The generated-code check skips only on same-repo pull requests: that path mints e2b's
-  GitHub App token to auto-commit regenerated files, and this org carries no such secret
-  (it died with `[@octokit/auth-app] appId option is required`). Fork PRs run the
-  verify-only path and keep the check, and so does `main` — `push-main.yml` passes
-  `commit: false`, so it never needed the App and is left alone.
+  GitHub App token to auto-commit regenerated files, and this org carries neither the
+  `AUTOFIXER_APP_ID` variable nor the `AUTOFIXER_APP_SECRET` secret (it died with
+  `[@octokit/auth-app] appId option is required`). Set both and it runs here again. Fork
+  PRs run the verify-only path and keep the check, and so does `main` — `push-main.yml`
+  passes `commit: false`, so it never needed the App and is left alone.
 - Our images are built by `astralform-ai/Astralform/.github/workflows/runner-image.yml`
   (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime`), whose `mirror` job then pushes
   them into `registry.astralform.ai` on `[self-hosted, hostinger]` — that repository is
