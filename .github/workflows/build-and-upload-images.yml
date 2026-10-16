@@ -17,8 +17,10 @@ jobs:
     # `ci-builder` was never a registered runner — it came with the upstream this repo
     # forks, and the org's pool carries `hostinger` / `namek` / `macmini` instead, so every
     # run of this workflow has queued or been cancelled. `[self-hosted, linux]` is the
-    # label the org's other repos use; GitHub matches labels case-insensitively, and a
-    # dispatched run landed on `namek-org-2` and `hostinger-org-2`, both success.
+    # label the org's other repos use, and GitHub matches labels case-insensitively: the
+    # org's pool holds five `hostinger`, five `namek` and two `macmini` runners, none of
+    # them `ci-builder`. This workflow's own runs have all been cancellations, so the
+    # label is verified against the pool, not against a run of these steps.
     # Unlike a hosted VM these hosts PERSIST between jobs, so this job installs its own
     # toolchain rather than assuming one, and bounds itself: a wedged build would
     # otherwise hold a shared runner slot for GitHub's 360-minute default.
@@ -93,13 +95,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # `go.work`, not `go.mod`: the root has no go.mod — the 13 modules live under
+          # packages/* and tests/integration, and go.work pins the toolchain. The same
+          # pair pr-tests-arm64.yml uses, cache off included, because setup-go's cache
+          # step looks for a dependency file at the workspace root and finds none.
+          go-version-file: go.work
+          cache: false
 
       - name: Set up Docker Buildx
         # Three targets shell out to `docker buildx` (api, client-proxy,
-        # docker-reverse-proxy), and buildx is a plugin Docker Engine does not ship —
-        # self-host.md lists Go, Docker and Buildx as three separate prerequisites for
-        # this exact make target.
+        # docker-reverse-proxy), and buildx is a plugin Docker Engine does not ship:
+        # self-host.md names Buildx as "required by make build-and-upload targets"
+        # specifically, where Go and Docker are general prerequisites of the host.
         uses: docker/setup-buildx-action@v3
 
       - name: Set up Docker
