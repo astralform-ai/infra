@@ -92,11 +92,15 @@ jobs:
         # Ten image builds run sequentially in this one job, plus the Cloud SDK, buildkit's
         # buildkitd image and two Go caches — against a runner with ~14 GB free. The failure
         # mode is not a clean error: if the filesystem fills after some pushes, the job dies
-        # having published a partial set of `:${COMMIT_SHA}` tags for the commit. Nothing here
-        # needs the preinstalled Android/Dotnet/GHC stacks, so they go first.
+        # having published a partial set of `:${COMMIT_SHA}` tags for the commit.
+        #
+        # The Android SDK, .NET and GHC are the image's largest unused installs, and nothing
+        # here needs them: no step, Makefile or Dockerfile in this repo references them. GHC
+        # lives under `.ghcup` on 24.04, not the `/opt/ghc` of the 20.04-era image, and boost
+        # is gone from the image entirely — so the list is what 24.04 actually carries.
         run: |
           df -h /
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup
           df -h /
 
       - name: Setup Service Account
