@@ -133,7 +133,11 @@ jobs:
     needs: [detect-changes]
     uses: ./.github/workflows/pr-no-generated-changes.yml
     with:
-      run-check: ${{ contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') && needs.detect-changes.outputs.docs-only != 'true' }}
+      # Fork-local gate: the reusable workflow mints a GitHub App token, and no
+      # repository in this org carries `AUTOFIXER_APP_ID`. Without the gate the check
+      # goes red on every PR that touches generated inputs, on a secret nobody has;
+      # skipped is the honest state, and setting the variable and secret turns it on.
+      run-check: ${{ vars.AUTOFIXER_APP_ID != '' && contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') && needs.detect-changes.outputs.docs-only != 'true' }}
       # Only auto-commit for same-repo PRs (secrets aren't available for forks)
       commit: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     secrets:

@@ -38,11 +38,13 @@ use a GitHub-hosted runner (`ubuntu-latest` / `ubuntu-24.04`).
   nothing — and `Release Please`, which runs on the default token and fails at PR
   creation (`GitHub Actions is not permitted to create or approve pull requests`, with
   no `vars.RELEASE_PLEASE_APP_ID`).
-- The generated-code check fails with `[@octokit/auth-app] appId option is required`
-  on PRs that change generated inputs — a missing GitHub App secret, not the change.
+- The generated-code check skips unless `vars.AUTOFIXER_APP_ID` is set: the reusable
+  workflow mints e2b's GitHub App token, and this org carries no such secret. Set both
+  and it runs; until then a PR touching generated inputs stays green rather than failing
+  on `[@octokit/auth-app] appId option is required`.
 - Our images are built by `astralform-ai/Astralform/.github/workflows/runner-image.yml`
-  (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime`), then mirrored by hand into
-  `registry.astralform.ai`.
+  (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime`), whose `mirror` job then pushes
+  them into `registry.astralform.ai` on `[self-hosted, hostinger]`.
 
 The full, verified facts live in `astralform-ai/Astralform` →
 `.claude/skills/infrastructure/references/ci-runners.md` and `github-secrets.md`.
