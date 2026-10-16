@@ -74,7 +74,11 @@ jobs:
   promote:
     name: Promote envd to ${{ matrix.environment }}
     needs: validate-inputs
-    runs-on: ci-builder
+    # `ci-builder` was never a registered runner: the org's self-hosted pool carries
+    # `hostinger` / `namek` (both Linux, both with docker) and the Apple repos use
+    # `macmini`. `[self-hosted, linux]` is the label the other repos' CI uses, and GitHub
+    # matches labels case-insensitively, so it lands on whichever of the two is free.
+    runs-on: [self-hosted, linux]
     strategy:
       fail-fast: false
       matrix:
