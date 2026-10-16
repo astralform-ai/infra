@@ -27,16 +27,20 @@ Output style rules (strict, override any defaults):
 
 ## Fork-local: this repository inside `astralform-ai`
 
-`main` here mirrors `e2b-dev/runtime`; the fork exists to track upstream, not to run
-upstream's CI. Our org carries none of e2b's credentials, and this repository is
-public, so `[self-hosted, …]` jobs never schedule — use `ubuntu-latest`.
+`main` mirrors `e2b-dev/runtime` and carries only a handful of local commits; the fork
+tracks upstream rather than running upstream's CI. Our org carries none of e2b's
+credentials, and this repository is public, so `[self-hosted, …]` jobs never schedule —
+use a GitHub-hosted runner (`ubuntu-latest` / `ubuntu-24.04`).
 
-- Disabled on 2026-10-16, never runnable here: `Build and upload images`,
-  `Promote envd`, `Release Please`.
-- The generated-code check fails on every PR because this repo has no GitHub App
-  secret; the failure is not about the PR's content.
+- Disabled on 2026-10-16: `Build and upload images` and `Promote envd` (both stop at
+  `Missing identity ID for OIDC auth` without an Infisical identity that exists at no
+  scope here) and `Release Please` (it runs on the default token and fails parsing
+  upstream's commit subjects; nothing releases from this fork).
+- The generated-code check fails with `[@octokit/auth-app] appId option is required`
+  on PRs that change generated inputs — a missing GitHub App secret, not the change.
 - Our images are built by `astralform-ai/Astralform/.github/workflows/runner-image.yml`
-  (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime` → `registry.astralform.ai`).
+  (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime`), then mirrored by hand into
+  `registry.astralform.ai`.
 
 The full, verified facts live in `astralform-ai/Astralform` →
 `.claude/skills/infrastructure/references/ci-runners.md` and `github-secrets.md`.
