@@ -24,6 +24,13 @@ jobs:
     # wedged build cannot hold a runner for GitHub's 360-minute default.
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # The first step authenticates to Infisical with `vars.INFISICAL_MACHINE_IDENTITY_ID`,
+    # a value this org does not carry (no repository here has it, and the org's three
+    # variables are API/AUTH base URLs and CORS). Without this gate every merge would run
+    # and fail on `Missing identity ID for OIDC auth`, which is a red X that says nothing
+    # about the merge. Skipped says the same thing honestly, and the workflow starts
+    # working the moment the variable exists.
+    if: vars.INFISICAL_MACHINE_IDENTITY_ID != ''
     strategy:
       fail-fast: false
       matrix:

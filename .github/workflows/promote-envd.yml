@@ -79,6 +79,7 @@ jobs:
     # runners for those. `ubuntu-latest` schedules, and minutes are free for public repos.
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    if: vars.INFISICAL_MACHINE_IDENTITY_ID != ''
     strategy:
       fail-fast: false
       matrix:
