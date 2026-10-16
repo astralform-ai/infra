@@ -78,7 +78,13 @@ jobs:
     # here: this repository is a PUBLIC FORK, and GitHub does not schedule self-hosted
     # runners for those. `ubuntu-latest` schedules, and minutes are free for public repos.
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
+    # Same gate as the image build, for the same reason: the composite action requires
+    # `infisical_machine_identity_id` and this org carries no such variable, so without it
+    # the job fails on `Missing identity ID for OIDC auth`. Skipped is the honest state —
+    # note that `validate-inputs` still passes and the workflow concludes green, so a
+    # dispatch of "Promote envd" against an unprovisioned repo looks successful and
+    # promotes nothing.
     if: vars.INFISICAL_MACHINE_IDENTITY_ID != ''
     strategy:
       fail-fast: false

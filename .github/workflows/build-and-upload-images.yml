@@ -16,9 +16,9 @@ jobs:
     name: Build and upload images to the ${{ matrix.environment }} environment
     # `ci-builder` was never a registered runner — it came with the upstream this repo
     # forks — and NO self-hosted label works here either: this repository is a PUBLIC FORK,
-    # and GitHub does not schedule self-hosted runners for those. Every run before this
-    # queued forever (`queued runner=none`), which is what a job looks like when its label
-    # can never match. `ubuntu-latest` is the runner that does schedule, it carries docker
+    # and GitHub does not schedule self-hosted runners for those. Every run before this sat
+    # `status: queued` with `runner_name: null` forever, which is what a job looks like when
+    # its label can never match. `ubuntu-latest` is the runner that does schedule, it carries docker
     # and the buildx plugin, and minutes are free for public repositories.
     # The job installs its own toolchain rather than assuming one, and bounds itself so a
     # wedged build cannot hold a runner for GitHub's 360-minute default.
@@ -88,6 +88,17 @@ jobs:
           env-slug: ${{ matrix.environment }}
           export-type: "env"
 
+      - name: Free disk space
+        # Ten image builds run sequentially in this one job, plus the Cloud SDK, buildkit's
+        # buildkitd image and two Go caches — against a runner with ~14 GB free. The failure
+        # mode is not a clean error: if the filesystem fills after some pushes, the job dies
+        # having published a partial set of `:${COMMIT_SHA}` tags for the commit. Nothing here
+        # needs the preinstalled Android/Dotnet/GHC stacks, so they go first.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          df -h /
+
       - name: Setup Service Account
         uses: google-github-actions/auth@v3
         with:
@@ -109,9 +120,11 @@ jobs:
 
       - name: Set up Docker Buildx
         # Three targets shell out to `docker buildx` (api, client-proxy,
-        # docker-reverse-proxy), and buildx is a plugin Docker Engine does not ship:
-        # self-host.md names Buildx as "required by make build-and-upload targets"
-        # specifically, where Go and Docker are general prerequisites of the host.
+        # docker-reverse-proxy). The runner image happens to bundle buildx, but Docker
+        # Engine does not ship it — self-host.md names Buildx as "required by make
+        # build-and-upload targets" specifically, where Go and Docker are general host
+        # prerequisites — so this pins a known buildx rather than inheriting whatever the
+        # image carries.
         uses: docker/setup-buildx-action@v3
 
       - name: Set up Docker
