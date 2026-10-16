@@ -24,3 +24,25 @@ Output style rules (strict, override any defaults):
 - Skip style/nit comments — `golangci-lint` covers those.
 - Skip test-coverage comments — Codecov covers those.
 - Focus on: race conditions, nil-deref, error handling, auth/authz, request routing, resource leaks, SQL/migration correctness, and gRPC/proto compatibility.
+
+## Fork-local: this repository inside `astralform-ai`
+
+`main` mirrors `e2b-dev/runtime` and carries only a handful of local commits; the fork
+tracks upstream rather than running upstream's CI. Our org carries none of e2b's
+credentials, and this repository is public, so `[self-hosted, …]` jobs never schedule —
+use a GitHub-hosted runner (`ubuntu-latest` / `ubuntu-24.04`).
+
+- Disabled on 2026-10-16: `Build and upload images` and `Promote envd`, both gated on an
+  Infisical identity that exists at no scope here — they skip rather than fail, and a
+  `Promote envd` dispatch against an unprovisioned repo concludes green and promotes
+  nothing — and `Release Please`, which runs on the default token and fails at PR
+  creation (`GitHub Actions is not permitted to create or approve pull requests`, with
+  no `vars.RELEASE_PLEASE_APP_ID`).
+- The generated-code check fails with `[@octokit/auth-app] appId option is required`
+  on PRs that change generated inputs — a missing GitHub App secret, not the change.
+- Our images are built by `astralform-ai/Astralform/.github/workflows/runner-image.yml`
+  (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime`), then mirrored by hand into
+  `registry.astralform.ai`.
+
+The full, verified facts live in `astralform-ai/Astralform` →
+`.claude/skills/infrastructure/references/ci-runners.md` and `github-secrets.md`.
