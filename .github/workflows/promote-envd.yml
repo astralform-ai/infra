@@ -74,11 +74,12 @@ jobs:
   promote:
     name: Promote envd to ${{ matrix.environment }}
     needs: validate-inputs
-    # `ci-builder` was never a registered runner: the org's self-hosted pool carries
-    # `hostinger` / `namek` (both Linux, both with docker) and the Apple repos use
-    # `macmini`. `[self-hosted, linux]` is the label the other repos' CI uses, and GitHub
-    # matches labels case-insensitively, so it lands on whichever of the two is free.
+    # `ci-builder` was never a registered runner — it came with the upstream this repo
+    # forks. `[self-hosted, linux]` is the label the org's other repos use, and GitHub
+    # matches labels case-insensitively. These hosts persist between jobs, so the job
+    # bounds itself rather than holding a shared slot for the 360-minute default.
     runs-on: [self-hosted, linux]
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

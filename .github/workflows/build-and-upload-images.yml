@@ -14,11 +14,16 @@ permissions:
 jobs:
   build-images:
     name: Build and upload images to the ${{ matrix.environment }} environment
-    # `ci-builder` was never a registered runner: the org's self-hosted pool carries
-    # `hostinger` / `namek` (both Linux, both with docker) and the Apple repos use
-    # `macmini`. `[self-hosted, linux]` is the label the other repos' CI uses, and GitHub
-    # matches labels case-insensitively, so it lands on whichever of the two is free.
+    # `ci-builder` was never a registered runner — it came with the upstream this repo
+    # forks, and the org's pool carries `hostinger` / `namek` / `macmini` instead, so every
+    # run of this workflow has queued or been cancelled. `[self-hosted, linux]` is the
+    # label the org's other repos use; GitHub matches labels case-insensitively, and a
+    # dispatched run landed on `namek-org-2` and `hostinger-org-2`, both success.
+    # Unlike a hosted VM these hosts PERSIST between jobs, so this job installs its own
+    # toolchain rather than assuming one, and bounds itself: a wedged build would
+    # otherwise hold a shared runner slot for GitHub's 360-minute default.
     runs-on: [self-hosted, linux]
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +89,18 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Docker Buildx
+        # Three targets shell out to `docker buildx` (api, client-proxy,
+        # docker-reverse-proxy), and buildx is a plugin Docker Engine does not ship —
+        # self-host.md lists Go, Docker and Buildx as three separate prerequisites for
+        # this exact make target.
+        uses: docker/setup-buildx-action@v3
 
       - name: Set up Docker
         env:
