@@ -15,17 +15,22 @@ jobs:
   build-images:
     name: Build and upload images to the ${{ matrix.environment }} environment
     # `ci-builder` was never a registered runner — it came with the upstream this repo
-    # forks, and the org's pool carries `hostinger` / `namek` / `macmini` instead, so every
-    # run of this workflow has queued or been cancelled. `[self-hosted, linux]` is the
-    # label the org's other repos use, and GitHub matches labels case-insensitively: the
-    # org's pool holds five `hostinger`, five `namek` and two `macmini` runners, none of
-    # them `ci-builder`. This workflow's own runs have all been cancellations, so the
-    # label is verified against the pool, not against a run of these steps.
-    # Unlike a hosted VM these hosts PERSIST between jobs, so this job installs its own
-    # toolchain rather than assuming one, and bounds itself: a wedged build would
-    # otherwise hold a shared runner slot for GitHub's 360-minute default.
-    runs-on: [self-hosted, linux]
-    timeout-minutes: 60
+    # forks — and NO self-hosted label works here either: this repository is a PUBLIC FORK,
+    # and GitHub does not schedule self-hosted runners for those. Every run before this sat
+    # `status: queued` with `runner_name: null` forever, which is what a job looks like when
+    # its label can never match. `ubuntu-latest` is the runner that does schedule, it carries docker
+    # and the buildx plugin, and minutes are free for public repositories.
+    # The job installs its own toolchain rather than assuming one, and bounds itself so a
+    # wedged build cannot hold a runner for GitHub's 360-minute default.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # The first step authenticates to Infisical with `vars.INFISICAL_MACHINE_IDENTITY_ID`,
+    # a value this org does not carry (no repository here has it, and the org's three
+    # variables are API/AUTH base URLs and CORS). Without this gate every merge would run
+    # and fail on `Missing identity ID for OIDC auth`, which is a red X that says nothing
+    # about the merge. Skipped says the same thing honestly, and the workflow starts
+    # working the moment the variable exists.
+    if: vars.INFISICAL_MACHINE_IDENTITY_ID != ''
     strategy:
       fail-fast: false
       matrix:
@@ -83,6 +88,21 @@ jobs:
           env-slug: ${{ matrix.environment }}
           export-type: "env"
 
+      - name: Free disk space
+        # Ten image builds run sequentially in this one job, plus the Cloud SDK, buildkit's
+        # buildkitd image and two Go caches — against a runner with ~14 GB free. The failure
+        # mode is not a clean error: if the filesystem fills after some pushes, the job dies
+        # having published a partial set of `:${COMMIT_SHA}` tags for the commit.
+        #
+        # The Android SDK, .NET and GHC are the image's largest unused installs, and nothing
+        # here needs them: no step, Makefile or Dockerfile in this repo references them. GHC
+        # lives under `.ghcup` on 24.04, not the `/opt/ghc` of the 20.04-era image, and boost
+        # is gone from the image entirely — so the list is what 24.04 actually carries.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup
+          df -h /
+
       - name: Setup Service Account
         uses: google-github-actions/auth@v3
         with:
@@ -104,9 +124,11 @@ jobs:
 
       - name: Set up Docker Buildx
         # Three targets shell out to `docker buildx` (api, client-proxy,
-        # docker-reverse-proxy), and buildx is a plugin Docker Engine does not ship:
-        # self-host.md names Buildx as "required by make build-and-upload targets"
-        # specifically, where Go and Docker are general prerequisites of the host.
+        # docker-reverse-proxy). The runner image happens to bundle buildx, but Docker
+        # Engine does not ship it — self-host.md names Buildx as "required by make
+        # build-and-upload targets" specifically, where Go and Docker are general host
+        # prerequisites — so this pins a known buildx rather than inheriting whatever the
+        # image carries.
         uses: docker/setup-buildx-action@v3
 
       - name: Set up Docker
