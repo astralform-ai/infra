@@ -32,10 +32,12 @@ tracks upstream rather than running upstream's CI. Our org carries none of e2b's
 credentials, and this repository is public, so `[self-hosted, …]` jobs never schedule —
 use a GitHub-hosted runner (`ubuntu-latest` / `ubuntu-24.04`).
 
-- Disabled on 2026-10-16: `Build and upload images` and `Promote envd` (both stop at
-  `Missing identity ID for OIDC auth` without an Infisical identity that exists at no
-  scope here) and `Release Please` (it runs on the default token and fails parsing
-  upstream's commit subjects; nothing releases from this fork).
+- Disabled on 2026-10-16: `Build and upload images` and `Promote envd`, both gated on an
+  Infisical identity that exists at no scope here — they skip rather than fail, and a
+  `Promote envd` dispatch against an unprovisioned repo concludes green and promotes
+  nothing — and `Release Please`, which runs on the default token and fails at PR
+  creation (`GitHub Actions is not permitted to create or approve pull requests`, with
+  no `vars.RELEASE_PLEASE_APP_ID`).
 - The generated-code check fails with `[@octokit/auth-app] appId option is required`
   on PRs that change generated inputs — a missing GitHub App secret, not the change.
 - Our images are built by `astralform-ai/Astralform/.github/workflows/runner-image.yml`
