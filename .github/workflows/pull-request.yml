@@ -133,11 +133,12 @@ jobs:
     needs: [detect-changes]
     uses: ./.github/workflows/pr-no-generated-changes.yml
     with:
-      # Fork-local gate: the reusable workflow mints a GitHub App token, and no
-      # repository in this org carries `AUTOFIXER_APP_ID`. Without the gate the check
-      # goes red on every PR that touches generated inputs, on a secret nobody has;
-      # skipped is the honest state, and setting the variable and secret turns it on.
-      run-check: ${{ vars.AUTOFIXER_APP_ID != '' && contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') && needs.detect-changes.outputs.docs-only != 'true' }}
+      # Fork-local gate: on same-repo PRs the reusable workflow mints a GitHub App token
+      # to auto-commit regenerated files, and this org carries no `AUTOFIXER_APP_ID` — so
+      # those PRs died in the token step with `[@octokit/auth-app] appId option is
+      # required`, a secret nobody has. Fork PRs already pass `commit: false` and run the
+      # verify-only pipeline, which needs no credential, so they keep the check.
+      run-check: ${{ contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') && needs.detect-changes.outputs.docs-only != 'true' && (vars.AUTOFIXER_APP_ID != '' || github.event.pull_request.head.repo.full_name != github.repository) }}
       # Only auto-commit for same-repo PRs (secrets aren't available for forks)
       commit: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     secrets:

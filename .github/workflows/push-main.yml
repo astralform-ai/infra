@@ -62,7 +62,7 @@ jobs:
     needs: [detect-changes]
     uses: ./.github/workflows/pr-no-generated-changes.yml
     with:
-      run-check: ${{ vars.AUTOFIXER_APP_ID != '' && contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') }}
+      run-check: ${{ contains(fromJSON(needs.detect-changes.outputs.changed-scopes), 'generated-inputs') }}
       commit: false
 
   unit-tests:
