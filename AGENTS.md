@@ -24,3 +24,19 @@ Output style rules (strict, override any defaults):
 - Skip style/nit comments — `golangci-lint` covers those.
 - Skip test-coverage comments — Codecov covers those.
 - Focus on: race conditions, nil-deref, error handling, auth/authz, request routing, resource leaks, SQL/migration correctness, and gRPC/proto compatibility.
+
+## Fork-local: this repository inside `astralform-ai`
+
+`main` here mirrors `e2b-dev/runtime`; the fork exists to track upstream, not to run
+upstream's CI. Our org carries none of e2b's credentials, and this repository is
+public, so `[self-hosted, …]` jobs never schedule — use `ubuntu-latest`.
+
+- Disabled on 2026-10-16, never runnable here: `Build and upload images`,
+  `Promote envd`, `Release Please`.
+- The generated-code check fails on every PR because this repo has no GitHub App
+  secret; the failure is not about the PR's content.
+- Our images are built by `astralform-ai/Astralform/.github/workflows/runner-image.yml`
+  (`ubuntu-latest` → `ghcr.io/astralform-ai/agent-runtime` → `registry.astralform.ai`).
+
+The full, verified facts live in `astralform-ai/Astralform` →
+`.claude/skills/infrastructure/references/ci-runners.md` and `github-secrets.md`.
